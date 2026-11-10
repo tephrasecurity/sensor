@@ -1,0 +1,5 @@
+Tephra runner sensor
+Copyright 2026 Tephra Security
+
+This product includes software licensed under the Apache License, Version 2.0 (see LICENSE). The bundled files in
+dist/ include @actions/core and @actions/artifact (MIT); their licence texts are in dist/*.LEGAL.txt.

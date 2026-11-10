@@ -1,0 +1,48 @@
+name: Tephra runner sensor
+description: See every DNS lookup, connection and program in a GitHub Actions job; block egress and known-bad hosts.
+author: Tephra Security
+branding:
+  icon: shield
+  color: gray-dark
+inputs:
+  egress-policy:
+    description: audit (record only) or block (reject connections to anything not in allowed-endpoints)
+    required: false
+    default: audit
+  allowed-endpoints:
+    description: >
+      Domains (wildcards like *.amazonaws.com allowed), IPs or CIDRs this job may reach, one per line.
+      GitHub's own endpoints are always allowed. The job's step summary suggests a list from audit mode.
+    required: false
+    default: ""
+  threat-intel:
+    description: >
+      on (default) refuses known-bad domains and IPs in either mode. The list comes from Tephra Trace when
+      console-url is set, otherwise from public feeds (abuse.ch Feodo Tracker, Spamhaus DROP). off disables it.
+    required: false
+    default: "on"
+  console-url:
+    description: Optional. Stream records live to a Tephra Trace console (https://trace.example.com).
+    required: false
+    default: ""
+  ingest-token:
+    description: Optional. The console's ingest token, from a repository or organization secret.
+    required: false
+    default: ""
+  artifact-name:
+    description: Name prefix of the artifact holding what the sensor recorded.
+    required: false
+    default: tephra-sensor
+  retention-days:
+    description: How long GitHub keeps the artifact.
+    required: false
+    default: "30"
+  fail-on-error:
+    description: '"true" fails the job if the sensor can''t start (default: warn and continue).'
+    required: false
+    default: "false"
+runs:
+  using: node20
+  main: dist/main.js
+  post: dist/post.js
+  post-if: always()

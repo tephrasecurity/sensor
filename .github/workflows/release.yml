@@ -1,0 +1,37 @@
+name: release
+on:
+  push:
+    tags: ["v*.*.*"]
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # create the release and move the major tag
+      id-token: write        # sign the provenance
+      attestations: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+      - name: dist/ was built from this commit
+        run: |
+          npm ci && npm run build
+          test -z "$(git status --porcelain dist)" || { echo "::error::dist/ does not match src/"; exit 1; }
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: |
+            dist/main.js
+            dist/post.js
+            sensor.py
+      - name: create the release and move the major tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes "See CHANGELOG.md. Verify: gh attestation verify dist/main.js --repo $GITHUB_REPOSITORY"
+          MAJOR="${TAG%%.*}"
+          git tag -f "$MAJOR" "$GITHUB_SHA" && git push -f origin "refs/tags/$MAJOR"

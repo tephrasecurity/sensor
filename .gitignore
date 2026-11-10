@@ -1,0 +1,6 @@
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+# dist/ is committed on purpose: GitHub runs the action from it
+.DS_Store
