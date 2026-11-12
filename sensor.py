@@ -40,7 +40,7 @@ import threading
 import time
 import urllib.request
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 LOG_NEW, LOG_BLOCK, LOG_FWD, LOG_INTEL = "tephra-new ", "tephra-block ", "tephra-fwd ", "tephra-intel "
 CHAINS = ("TEPHRA_LOG", "TEPHRA_OUT", "TEPHRA_INTEL", "TEPHRA_INTEL_HIT")   # teardown order matters: INTEL before HIT
 # public feeds the sensor reads itself when it has no console to ask (no keys needed)
@@ -400,6 +400,7 @@ class Sensor:
         self.workspace = env.get("TEPHRA_WORKSPACE") or env.get("GITHUB_WORKSPACE") or ""
         self.upstreams = [addr(u) for u in split_list(env.get("TEPHRA_DNS_UPSTREAM", ""))] or self._resolvers()
         self.ip_names: dict[str, str] = {}
+        self.aliases: set[str] = set()            # CNAME targets of allowed names
         self.records: dict[str, dict] = {}       # deduplicated, for the console
         self.pending: list[dict] = []            # not yet streamed
         self.errors: list[str] = []
@@ -485,7 +486,7 @@ class Sensor:
             name, qtype, _ = parse_query(q)
         except (IndexError, ValueError, struct.error):
             return None
-        allowed = self.allow.domain(name)
+        allowed = self.allow.domain(name) or name in self.aliases
         if self.intel_on and self.bad.domain(name) and not CORE.domain(name):
             self.emit({"type": "dns_blocked", "domain": name, "qtype": qtype, "reason": "threat_intel"},
                       f"dnsblock:{name}")
@@ -500,6 +501,13 @@ class Sensor:
             answers = parse_answers(r)
         except (IndexError, ValueError, struct.error):
             answers = []
+        if allowed:
+            # an allowed name that is an alias (CNAME) of another name, as with load balancers and CDNs: the
+            # resolver may look the target up on its own, so the target is allowed too, unless it is known-bad
+            for _, t, target in answers:
+                target = target.lower().rstrip(".")
+                if t == 5 and target not in self.aliases and not (self.intel_on and self.bad.domain(target)):
+                    self.aliases.add(target)
         ips = [v for _, t, v in answers if t in (1, 28)]
         for ip in ips:
             self.ip_names[ip] = name
@@ -635,7 +643,7 @@ class Sensor:
                "uid": f.get("UID"), "process": info.get("comm") or ("container" if kind == "container" else None),
                "exe": info.get("exe"), "argv": info.get("argv"), "pid": info.get("pid"),
                "blocked": kind in ("blocked", "intel"),
-               "allowed": bool(domain and self.allow.domain(domain)) or self.allow.ip(dst)}
+               "allowed": bool(domain and (self.allow.domain(domain) or domain in self.aliases)) or self.allow.ip(dst)}
         if kind == "intel":
             rec["reason"] = "threat_intel"
             kind = "blocked_intel"

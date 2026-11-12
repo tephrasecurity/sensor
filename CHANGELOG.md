@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1 (2026-11-12)
+
+- Block mode: when an allowed name is an alias (CNAME) of another name, as with load balancers and CDNs, the
+  target name is allowed too, unless it is known-bad. Before, a resolver that looked the target up on its own got
+  it refused, which blocked, for example, a console behind an AWS load balancer.
+
 ## 1.0.0
 
 First public release.

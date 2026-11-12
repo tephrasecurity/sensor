@@ -87,3 +87,43 @@ def test_env_file_is_read_and_deleted(tmp_path):
     f.write_text(json.dumps({"TEPHRA_MODE": "block"}))
     argv = sensor.load_env_file(["sensor.py", "start", "--env-file", str(f)])
     assert argv == ["sensor.py", "start"] and os.environ["TEPHRA_MODE"] == "block" and not f.exists()
+
+
+def _response(q: bytes, records: list[tuple[str, int, bytes]]) -> bytes:
+    """A DNS answer to query q with (owner, type, rdata) records."""
+    def enc(n: str) -> bytes:
+        return b"".join(bytes([len(p)]) + p.encode() for p in n.split(".")) + b"\x00"
+    head = q[:2] + struct.pack(">HHHHH", 0x8180, 1, len(records), 0, 0)
+    body = q[12:]
+    for owner, rtype, rdata in records:
+        body += enc(owner) + struct.pack(">HHIH", rtype, 1, 60, len(rdata)) + rdata
+    return head + body
+
+
+def test_alias_of_an_allowed_name_is_allowed_in_block_mode(tmp_path, monkeypatch):
+    monkeypatch.setenv("TEPHRA_DIR", str(tmp_path))
+    monkeypatch.setenv("TEPHRA_MODE", "block")
+    monkeypatch.setenv("TEPHRA_ALLOWED", "trace.example.com")
+    s = sensor.Sensor()
+    s.block = True
+    s.allow = sensor.Allowlist(["trace.example.com"])
+    s.fw = type("FW", (), {"allow": lambda self, ip, port=None: None})()
+    lb = "tephra-1.us-east-1.elb.amazonaws.com"
+
+    def fwd(q, tcp=False):
+        name, _, _ = sensor.parse_query(q)
+        if name == "trace.example.com":     # the resolver gets only the alias and looks the target up itself
+            return _response(q, [("trace.example.com", 5,
+                                  b"".join(bytes([len(p)]) + p.encode() for p in lb.split(".")) + b"\x00")])
+        return _response(q, [(name, 1, bytes([3, 4, 5, 6]))])
+    s._forward = fwd
+    assert struct.unpack(">H", s.answer(query("trace.example.com"))[2:4])[0] & 0xF == 0
+    r = s.answer(query(lb))
+    assert struct.unpack(">H", r[2:4])[0] & 0xF == 0                  # the alias target resolves
+    assert struct.unpack(">H", s.answer(query("other.amazonaws.com"))[2:4])[0] & 0xF == 3   # others still refused
+    s.bad = sensor.KnownBad(["evil.example.net"])
+    s.intel_on = True
+    s.aliases.clear()
+    s._forward = lambda q, tcp=False: _response(q, [("trace.example.com", 5, b"\x04evil\x07example\x03net\x00")])
+    s.answer(query("trace.example.com"))
+    assert "evil.example.net" not in s.aliases                        # never via a known-bad alias
