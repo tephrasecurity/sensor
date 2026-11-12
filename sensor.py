@@ -40,7 +40,7 @@ import threading
 import time
 import urllib.request
 
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 LOG_NEW, LOG_BLOCK, LOG_FWD, LOG_INTEL = "tephra-new ", "tephra-block ", "tephra-fwd ", "tephra-intel "
 CHAINS = ("TEPHRA_LOG", "TEPHRA_OUT", "TEPHRA_INTEL", "TEPHRA_INTEL_HIT")   # teardown order matters: INTEL before HIT
 # public feeds the sensor reads itself when it has no console to ask (no keys needed)
@@ -226,10 +226,18 @@ class Firewall:
             self.s.error(f"{cmd} {' '.join(args)}: {r.stderr.strip()[:200]}")
         return r.returncode == 0
 
+    # traffic that never leaves the local network segment: IPv6 router and neighbour discovery, multicast and
+    # broadcast (DHCP). It isn't egress, so it's neither logged nor blocked; blocking it can break networking.
+    LOCAL = {4: [["-d", "224.0.0.0/4"], ["-d", "255.255.255.255/32"]],
+             6: [["-d", "ff00::/8"], ["-d", "fe80::/10"]]
+             + [["-p", "ipv6-icmp", "--icmpv6-type", t] for t in ("133", "134", "135", "136")]}
+
     def setup(self, block: bool, fixed: list[str], dns_ips: list[str]) -> None:
         self.teardown(quiet=True)
         for cmd, fam in self.families:
             self._ipt(cmd, "-N", "TEPHRA_LOG")
+            for rule in self.LOCAL[fam]:
+                self._ipt(cmd, "-A", "TEPHRA_LOG", *rule, "-j", "RETURN")
             self._ipt(cmd, "-A", "TEPHRA_LOG", "!", "-o", "lo", "-m", "conntrack", "--ctstate", "NEW",
                       "-j", "LOG", "--log-prefix", LOG_NEW, "--log-uid")
             self._ipt(cmd, "-I", "OUTPUT", "1", "-j", "TEPHRA_LOG")
@@ -239,7 +247,7 @@ class Firewall:
             if not block:
                 continue
             self._ipt(cmd, "-N", "TEPHRA_OUT")
-            for rule in (["-o", "lo", "-j", "RETURN"],
+            for rule in (["-o", "lo", "-j", "RETURN"], *[[*r, "-j", "RETURN"] for r in self.LOCAL[fam]],
                          ["-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "RETURN"],
                          ["-m", "owner", "--uid-owner", "systemd-resolve", "-p", "udp", "--dport", "53", "-j", "RETURN"],
                          ["-m", "owner", "--uid-owner", "systemd-resolve", "-p", "tcp", "--dport", "53", "-j", "RETURN"],

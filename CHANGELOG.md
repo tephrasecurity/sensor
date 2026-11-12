@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4 (2026-11-12)
+
+- Traffic that never leaves the local network segment (IPv6 router and neighbour discovery, multicast,
+  broadcast such as DHCP) is no longer logged or blocked. Blocking it showed as "blocked outbound traffic" and,
+  on IPv6 networks, could stop the machine finding its router.
+
 ## 1.0.3 (2026-11-12)
 
 - Block mode: when the console's name is an alias (for example of an AWS load balancer), the target name is

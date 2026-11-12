@@ -148,3 +148,23 @@ def test_block_mode_opens_the_console_before_fetching_intel(tmp_path, monkeypatc
     opened.clear()
     a.allow_console()
     assert opened == []                          # audit mode never needs it
+
+
+def test_local_network_traffic_is_neither_logged_nor_blocked(tmp_path, monkeypatch):
+    monkeypatch.setenv("TEPHRA_DIR", str(tmp_path))
+    monkeypatch.setenv("TEPHRA_MODE", "block")
+    s = sensor.Sensor()
+    calls = []
+    def run(args, **kw):
+        calls.append(args)
+        fails = "-D" in args or "-L" in args          # nothing to remove yet, no Docker chain
+        return type("R", (), {"returncode": 1 if fails else 0, "stderr": ""})()
+    monkeypatch.setattr(sensor.subprocess, "run", run)
+    s.fw.setup(True, [], [])
+    v6 = [" ".join(a) for a in calls if a[0] == "ip6tables"]
+    log_rules, out_rules = [r for r in v6 if " TEPHRA_LOG " in r], [r for r in v6 if " TEPHRA_OUT " in r]
+    first_log = next(i for i, r in enumerate(log_rules) if "-j LOG" in r)
+    assert any("-d ff00::/8 -j RETURN" in r for r in log_rules[:first_log])      # skipped before it's logged
+    block_at = next(i for i, r in enumerate(out_rules) if "-j REJECT" in r)
+    assert any("--icmpv6-type 133 -j RETURN" in r for r in out_rules[:block_at])  # router solicitation let out
+    assert any("-d 224.0.0.0/4 -j RETURN" in " ".join(a) for a in calls if a[0] == "iptables")
