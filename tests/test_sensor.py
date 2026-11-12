@@ -197,3 +197,11 @@ def test_signs_in_with_the_jobs_oidc_token_when_there_is_no_ingest_token(tmp_pat
     assert s.auth() == f"Bearer {jwt}" and len(seen) == 1          # cached until a minute before it expires
     monkeypatch.setenv("TEPHRA_INGEST_TOKEN", "static")
     assert sensor.Sensor().auth() == "Bearer static"               # an ingest token still wins
+
+
+def test_host_facts(monkeypatch):
+    outs = {"dpkg-query": "2.8.3", "apt-config": "R='3'"}
+    monkeypatch.setattr(sensor.subprocess, "run", lambda cmd, **kw: type("R", (), {"stdout": outs[cmd[0]]})())
+    f = sensor.host_facts({"ImageOS": "ubuntu24", "ImageVersion": "20261102.1"})
+    assert f["apt"] == "2.8.3" and f["apt_retries"] == "3" and f["image"] == "ubuntu24 20261102.1"
+    assert f.get("os")          # read from /etc/os-release

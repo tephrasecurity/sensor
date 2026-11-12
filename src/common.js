@@ -39,7 +39,7 @@ function env() {
 // (and --preserve-env varies). Only what the sensor reads is written, mode 0600; the sensor deletes it on read.
 // ACTIONS_ID_TOKEN_REQUEST_*: present only when the job has id-token: write; with them and no ingest-token, the
 // sensor signs in to the console with the job's own OIDC token, so no stored secret is needed.
-const PASS = /^(GITHUB_|RUNNER_|TEPHRA_)|^(PATH|HOME|ACTIONS_ID_TOKEN_REQUEST_URL|ACTIONS_ID_TOKEN_REQUEST_TOKEN)$/;
+const PASS = /^(GITHUB_|RUNNER_|TEPHRA_)|^(PATH|HOME|ImageOS|ImageVersion|ACTIONS_ID_TOKEN_REQUEST_URL|ACTIONS_ID_TOKEN_REQUEST_TOKEN)$/;
 
 function sensor(cmd) {
   const vars = Object.fromEntries(Object.entries(env()).filter(([k, v]) => PASS.test(k) && v !== undefined));

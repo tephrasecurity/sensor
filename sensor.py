@@ -41,7 +41,7 @@ import threading
 import time
 import urllib.request
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 OIDC_AUDIENCE = "tephra-trace"     # the audience Tephra Trace accepts on sensor OIDC tokens
 LOG_NEW, LOG_BLOCK, LOG_FWD, LOG_INTEL = "tephra-new ", "tephra-block ", "tephra-fwd ", "tephra-intel "
 CHAINS = ("TEPHRA_LOG", "TEPHRA_OUT", "TEPHRA_INTEL", "TEPHRA_INTEL_HIT")   # teardown order matters: INTEL before HIT
@@ -207,6 +207,30 @@ def addr(v: str, default_port: int = 53) -> tuple[str, int]:
 
 
 # ---------- firewall ----------
+
+def host_facts(env: dict) -> dict:
+    """What the runner is: OS and version, GitHub's image, and apt's version and retry setting (CVE-2026-109518)."""
+    facts: dict = {}
+    try:
+        with open("/etc/os-release") as f:
+            kv = dict(line.rstrip().split("=", 1) for line in f if "=" in line)
+        facts["os"], facts["os_version"] = kv.get("ID", "").strip('"'), kv.get("VERSION_ID", "").strip('"')
+    except OSError:
+        pass
+    if env.get("ImageOS") or env.get("ImageVersion"):
+        facts["image"] = f"{env.get('ImageOS', '')} {env.get('ImageVersion', '')}".strip()
+    for key, cmd in (("apt", ["dpkg-query", "-W", "-f=${Version}", "apt"]),
+                     ("apt_retries", ["apt-config", "shell", "R", "Acquire::Retries"])):
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if key == "apt_retries":
+            out = out.partition("=")[2].strip("'\"") if out else "default"
+        if out:
+            facts[key] = out[:60]
+    return facts
+
 
 class Firewall:
     def __init__(self, sensor: "Sensor"):
@@ -897,6 +921,7 @@ class Sensor:
             self.set_resolver()
             self.emit({"type": "sensor", "event": "started", "mode": self.mode, "version": VERSION,
                        "allowed": self.user_allowed}, "sensor:start")
+            self.emit({"type": "host", **host_facts(dict(os.environ))}, "host")
         except Exception as e:  # noqa: BLE001
             self.error(f"setup failed: {e}")
             self.cleanup()

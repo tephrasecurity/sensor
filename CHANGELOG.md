@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0 (2026-11-12)
+
+- Records what the runner is at start: OS and version, GitHub's runner image, and apt's version and retry setting.
+  Tephra Trace uses it to check apt against CVE-2026-109518 in the pipeline baseline.
+
 ## 1.1.0 (2026-11-12)
 
 - No stored secret needed to stream to Tephra Trace: when the job has `id-token: write` and no `ingest-token` is
