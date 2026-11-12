@@ -127,3 +127,22 @@ def test_alias_of_an_allowed_name_is_allowed_in_block_mode(tmp_path, monkeypatch
     s._forward = lambda q, tcp=False: _response(q, [("trace.example.com", 5, b"\x04evil\x07example\x03net\x00")])
     s.answer(query("trace.example.com"))
     assert "evil.example.net" not in s.aliases                        # never via a known-bad alias
+
+
+def test_block_mode_opens_the_console_before_fetching_intel(tmp_path, monkeypatch):
+    monkeypatch.setenv("TEPHRA_DIR", str(tmp_path))
+    monkeypatch.setenv("TEPHRA_MODE", "block")
+    monkeypatch.setenv("TEPHRA_CONSOLE_URL", "https://trace.example.com/")
+    s = sensor.Sensor()
+    opened = []
+    s.fw = type("FW", (), {"allow": lambda self, ip, port=None: opened.append(ip)})()
+    monkeypatch.setattr(sensor.socket, "getaddrinfo",
+                        lambda host, port, proto=0: [(2, 1, 6, "", ("3.4.5.6", 443)), (2, 1, 6, "", ("3.4.5.7", 443))])
+    s.allow_console()
+    assert opened == ["3.4.5.6", "3.4.5.7"] and s.ip_names["3.4.5.6"] == "trace.example.com"
+    monkeypatch.setenv("TEPHRA_MODE", "audit")
+    a = sensor.Sensor()
+    a.fw = s.fw
+    opened.clear()
+    a.allow_console()
+    assert opened == []                          # audit mode never needs it

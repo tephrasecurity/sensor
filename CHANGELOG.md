@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2 (2026-11-12)
+
+- Block mode: the console's addresses are opened before the sensor fetches the threat-intel list at start.
+  Before, the fetch ran before the DNS proxy was up, was refused, and the sensor fell back to public feeds.
+
 ## 1.0.1 (2026-11-12)
 
 - Block mode: when an allowed name is an alias (CNAME) of another name, as with load balancers and CDNs, the

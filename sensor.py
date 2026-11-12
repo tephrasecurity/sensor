@@ -40,7 +40,7 @@ import threading
 import time
 import urllib.request
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 LOG_NEW, LOG_BLOCK, LOG_FWD, LOG_INTEL = "tephra-new ", "tephra-block ", "tephra-fwd ", "tephra-intel "
 CHAINS = ("TEPHRA_LOG", "TEPHRA_OUT", "TEPHRA_INTEL", "TEPHRA_INTEL_HIT")   # teardown order matters: INTEL before HIT
 # public feeds the sensor reads itself when it has no console to ask (no keys needed)
@@ -717,6 +717,22 @@ class Sensor:
             self.emit({"type": "file_modified", "path": path, "change": change}, f"file:{path}")
 
     # ----- threat intel -----
+    def allow_console(self) -> None:
+        """In block mode, let the sensor reach its console before the DNS proxy (which normally opens allowed
+        addresses as they're looked up) is running: needed for the threat-intel list fetched at start."""
+        host = re.sub(r"^https?://", "", self.console).split("/")[0].split(":")[0] if self.console else ""
+        if not (self.block and host):
+            return
+        try:
+            infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+        except OSError as e:
+            self.error(f"couldn't look up the console {host} ({e}); its threat-intel list may be unavailable")
+            return
+        for info in infos:
+            ip = info[4][0]
+            self.ip_names[ip] = host
+            self.fw.allow(ip)
+
     def load_intel(self) -> None:
         """Known-bad domains and IPs: from the console when it's set, else straight from public feeds."""
         if not self.intel_on:
@@ -829,6 +845,7 @@ class Sensor:
             if all(self._is_ip(h) for h, _ in self.upstreams) else []
         try:
             self.fw.setup(self.block, PLATFORM_IPS + [str(n) for n in self.allow.nets], dns_ips)
+            self.allow_console()                 # the DNS proxy isn't up yet, so open the console's addresses now
             self.load_intel()
             for t in threads:
                 t.start()
