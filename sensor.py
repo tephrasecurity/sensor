@@ -40,7 +40,7 @@ import threading
 import time
 import urllib.request
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 LOG_NEW, LOG_BLOCK, LOG_FWD, LOG_INTEL = "tephra-new ", "tephra-block ", "tephra-fwd ", "tephra-intel "
 CHAINS = ("TEPHRA_LOG", "TEPHRA_OUT", "TEPHRA_INTEL", "TEPHRA_INTEL_HIT")   # teardown order matters: INTEL before HIT
 # public feeds the sensor reads itself when it has no console to ask (no keys needed)
@@ -724,11 +724,16 @@ class Sensor:
         if not (self.block and host):
             return
         try:
-            infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+            infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP, flags=socket.AI_CANONNAME)
         except OSError as e:
             self.error(f"couldn't look up the console {host} ({e}); its threat-intel list may be unavailable")
             return
         for info in infos:
+            canon = (info[3] or "").lower().rstrip(".")
+            if canon and canon != host.lower():
+                # the console is an alias (e.g. of a load balancer); the runner's resolver now remembers that, and
+                # will later ask the DNS proxy for the target name directly, so allow it too
+                self.aliases.add(canon)
             ip = info[4][0]
             self.ip_names[ip] = host
             self.fw.allow(ip)

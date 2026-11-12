@@ -137,9 +137,11 @@ def test_block_mode_opens_the_console_before_fetching_intel(tmp_path, monkeypatc
     opened = []
     s.fw = type("FW", (), {"allow": lambda self, ip, port=None: opened.append(ip)})()
     monkeypatch.setattr(sensor.socket, "getaddrinfo",
-                        lambda host, port, proto=0: [(2, 1, 6, "", ("3.4.5.6", 443)), (2, 1, 6, "", ("3.4.5.7", 443))])
+                        lambda host, port, proto=0, flags=0: [(2, 1, 6, "lb-1.elb.amazonaws.com", ("3.4.5.6", 443)),
+                                                             (2, 1, 6, "", ("3.4.5.7", 443))])
     s.allow_console()
     assert opened == ["3.4.5.6", "3.4.5.7"] and s.ip_names["3.4.5.6"] == "trace.example.com"
+    assert "lb-1.elb.amazonaws.com" in s.aliases                      # the load balancer behind the console
     monkeypatch.setenv("TEPHRA_MODE", "audit")
     a = sensor.Sensor()
     a.fw = s.fw

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3 (2026-11-12)
+
+- Block mode: when the console's name is an alias (for example of an AWS load balancer), the target name is
+  allowed from the start. The runner's resolver remembers the alias after the sensor's first lookup and then asks
+  for the target directly, which 1.0.2 refused (harmless, but it showed as blocked).
+
 ## 1.0.2 (2026-11-12)
 
 - Block mode: the console's addresses are opened before the sensor fetches the threat-intel list at start.
