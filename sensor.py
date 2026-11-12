@@ -28,6 +28,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import ipaddress
+import base64
 import json
 import os
 import re
@@ -40,7 +41,8 @@ import threading
 import time
 import urllib.request
 
-VERSION = "1.0.4"
+VERSION = "1.1.0"
+OIDC_AUDIENCE = "tephra-trace"     # the audience Tephra Trace accepts on sensor OIDC tokens
 LOG_NEW, LOG_BLOCK, LOG_FWD, LOG_INTEL = "tephra-new ", "tephra-block ", "tephra-fwd ", "tephra-intel "
 CHAINS = ("TEPHRA_LOG", "TEPHRA_OUT", "TEPHRA_INTEL", "TEPHRA_INTEL_HIT")   # teardown order matters: INTEL before HIT
 # public feeds the sensor reads itself when it has no console to ask (no keys needed)
@@ -397,6 +399,10 @@ class Sensor:
         self.block = self.mode == "block"
         self.console = (env.get("TEPHRA_CONSOLE_URL") or "").rstrip("/")
         self.token = env.get("TEPHRA_INGEST_TOKEN") or ""
+        # without an ingest token, the sensor proves itself to the console with the job's own GitHub OIDC token
+        self.oidc_url = env.get("ACTIONS_ID_TOKEN_REQUEST_URL") or ""
+        self.oidc_request = env.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN") or ""
+        self._oidc: tuple[str, float] | None = None
         self.run_id = env.get("GITHUB_RUN_ID", "")
         self.repo = env.get("GITHUB_REPOSITORY", "")
         user = split_list(env.get("TEPHRA_ALLOWED", ""))
@@ -746,16 +752,38 @@ class Sensor:
             self.ip_names[ip] = host
             self.fw.allow(ip)
 
+    def auth(self) -> str | None:
+        """Authorization header for the console: the ingest token, else a fresh OIDC token for this job (cached
+        until a minute before it expires), else None."""
+        if self.token:
+            return f"Bearer {self.token}"
+        if not (self.oidc_url and self.oidc_request):
+            return None
+        if self._oidc and self._oidc[1] - time.time() > 60:
+            return f"Bearer {self._oidc[0]}"
+        sep = "&" if "?" in self.oidc_url else "?"
+        req = urllib.request.Request(f"{self.oidc_url}{sep}audience={OIDC_AUDIENCE}",
+                                     headers={"Authorization": f"bearer {self.oidc_request}"})
+        try:
+            jwt = json.loads(urllib.request.urlopen(req, timeout=8).read())["value"]
+            claims = json.loads(base64.urlsafe_b64decode(jwt.split(".")[1] + "=="))
+            self._oidc = (jwt, float(claims.get("exp", time.time() + 300)))
+            return f"Bearer {jwt}"
+        except Exception as e:  # noqa: BLE001 - streaming is optional; the artifact still carries everything
+            self.error(f"couldn't get a GitHub OIDC token for the console ({str(e)[:100]}); add id-token: write "
+                       "to the job, or set ingest-token")
+            return None
+
     def load_intel(self) -> None:
         """Known-bad domains and IPs: from the console when it's set, else straight from public feeds."""
         if not self.intel_on:
             return
         domains: list[str] = []
         nets: list[str] = []
-        if self.console and self.token:
+        auth = self.auth() if self.console else None
+        if auth:
             try:
-                req = urllib.request.Request(f"{self.console}/api/intel/blocklist",
-                                             headers={"Authorization": f"Bearer {self.token}"})
+                req = urllib.request.Request(f"{self.console}/api/intel/blocklist", headers={"Authorization": auth})
                 body = json.loads(urllib.request.urlopen(req, timeout=8).read())
                 if not body.get("block"):
                     self.intel_source = "off in Tephra Trace"
@@ -820,7 +848,7 @@ class Sensor:
 
     # ----- streaming -----
     def stream(self, final: bool = False) -> None:
-        if not (self.console and self.token and self.run_id):
+        if not (self.console and self.run_id and (self.token or (self.oidc_url and self.oidc_request))):
             return
         while not self.stop_event.is_set() or final:
             with self.lock:
@@ -830,10 +858,12 @@ class Sensor:
                 if final and self.actions:
                     payload["actions"] = self.actions
                 body = json.dumps(payload).encode()
-                req = urllib.request.Request(f"{self.console}/api/ingest/sensor", data=body, method="POST",
-                                             headers={"Authorization": f"Bearer {self.token}",
-                                                      "Content-Type": "application/json"})
                 try:
+                    auth = self.auth()
+                    if not auth:
+                        raise RuntimeError("no credential for the console")
+                    req = urllib.request.Request(f"{self.console}/api/ingest/sensor", data=body, method="POST",
+                                                 headers={"Authorization": auth, "Content-Type": "application/json"})
                     urllib.request.urlopen(req, timeout=8).read()
                 except Exception as e:  # noqa: BLE001 - never fail the build over streaming
                     self.error(f"couldn't reach the console: {str(e)[:120]}")

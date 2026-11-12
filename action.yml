@@ -26,7 +26,7 @@ inputs:
     required: false
     default: ""
   ingest-token:
-    description: Optional. The console's ingest token, from a repository or organization secret.
+    description: Optional. The console's ingest token, from a secret. Not needed when the job has id-token write permission, the sensor then signs in with the job's own OIDC token.
     required: false
     default: ""
   artifact-name:

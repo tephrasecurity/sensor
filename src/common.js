@@ -37,7 +37,9 @@ function env() {
 
 // Settings reach the root sensor in a file, not through sudo: newer runner images ship a sudo that ignores -E
 // (and --preserve-env varies). Only what the sensor reads is written, mode 0600; the sensor deletes it on read.
-const PASS = /^(GITHUB_|RUNNER_|TEPHRA_)|^(PATH|HOME)$/;
+// ACTIONS_ID_TOKEN_REQUEST_*: present only when the job has id-token: write; with them and no ingest-token, the
+// sensor signs in to the console with the job's own OIDC token, so no stored secret is needed.
+const PASS = /^(GITHUB_|RUNNER_|TEPHRA_)|^(PATH|HOME|ACTIONS_ID_TOKEN_REQUEST_URL|ACTIONS_ID_TOKEN_REQUEST_TOKEN)$/;
 
 function sensor(cmd) {
   const vars = Object.fromEntries(Object.entries(env()).filter(([k, v]) => PASS.test(k) && v !== undefined));

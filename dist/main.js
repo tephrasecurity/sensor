@@ -19821,7 +19821,7 @@ var require_common = __commonJS({
       if (e.TEPHRA_INGEST_TOKEN) core2.setSecret(e.TEPHRA_INGEST_TOKEN);
       return e;
     }
-    var PASS = /^(GITHUB_|RUNNER_|TEPHRA_)|^(PATH|HOME)$/;
+    var PASS = /^(GITHUB_|RUNNER_|TEPHRA_)|^(PATH|HOME|ACTIONS_ID_TOKEN_REQUEST_URL|ACTIONS_ID_TOKEN_REQUEST_TOKEN)$/;
     function sensor2(cmd) {
       const vars = Object.fromEntries(Object.entries(env()).filter(([k, v]) => PASS.test(k) && v !== void 0));
       const file = path2.join(process.env.RUNNER_TEMP || "/tmp", `tephra-sensor-${cmd}-${process.pid}.json`);

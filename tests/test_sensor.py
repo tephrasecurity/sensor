@@ -169,3 +169,31 @@ def test_local_network_traffic_is_neither_logged_nor_blocked(tmp_path, monkeypat
     block_at = next(i for i, r in enumerate(out_rules) if "-j REJECT" in r)
     assert any("--icmpv6-type 133 -j RETURN" in r for r in out_rules[:block_at])  # router solicitation let out
     assert any("-d 224.0.0.0/4 -j RETURN" in " ".join(a) for a in calls if a[0] == "iptables")
+
+
+def test_signs_in_with_the_jobs_oidc_token_when_there_is_no_ingest_token(tmp_path, monkeypatch):
+    import base64 as b64
+    import time as _t
+    monkeypatch.setenv("TEPHRA_DIR", str(tmp_path))
+    monkeypatch.setenv("TEPHRA_CONSOLE_URL", "https://trace.example.com")
+    monkeypatch.delenv("TEPHRA_INGEST_TOKEN", raising=False)
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://run-actions.example/idtoken?api-version=2.0")
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "req-token")
+    s = sensor.Sensor()
+    exp = int(_t.time()) + 300
+    jwt = "eyJhbGciOiJSUzI1NiJ9." + b64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).decode().rstrip("=") + ".sig"
+    seen = []
+
+    class Resp:
+        def read(self):
+            return json.dumps({"value": jwt}).encode()
+
+    def urlopen(req, timeout=0):
+        seen.append((req.full_url, req.headers.get("Authorization")))
+        return Resp()
+    monkeypatch.setattr(sensor.urllib.request, "urlopen", urlopen)
+    assert s.auth() == f"Bearer {jwt}"
+    assert seen == [("https://run-actions.example/idtoken?api-version=2.0&audience=tephra-trace", "bearer req-token")]
+    assert s.auth() == f"Bearer {jwt}" and len(seen) == 1          # cached until a minute before it expires
+    monkeypatch.setenv("TEPHRA_INGEST_TOKEN", "static")
+    assert sensor.Sensor().auth() == "Bearer static"               # an ingest token still wins

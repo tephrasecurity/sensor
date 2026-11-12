@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0 (2026-11-12)
+
+- No stored secret needed to stream to Tephra Trace: when the job has `id-token: write` and no `ingest-token` is
+  set, the sensor signs in with the job's own GitHub OIDC token (audience `tephra-trace`), fetched fresh as needed.
+  Needs Tephra Trace from 12 November 2026 or later; `ingest-token` keeps working.
+
 ## 1.0.4 (2026-11-12)
 
 - Traffic that never leaves the local network segment (IPv6 router and neighbour discovery, multicast,

@@ -67,7 +67,7 @@ Set `threat-intel: off` to disable it.
 | `allowed-endpoints` | | Domains (`*.example.com`), IPs or CIDRs, one per line |
 | `threat-intel` | `on` | Refuse known-bad domains and IPs in either mode |
 | `console-url` | | Optional: stream records live to a Tephra Trace console |
-| `ingest-token` | | The console's ingest token, from a secret |
+| `ingest-token` | | The console's ingest token, from a secret. Not needed when the job has `id-token: write`: the sensor then signs in with the job's own OIDC token |
 | `artifact-name` | `tephra-sensor` | Artifact name prefix (`-<job>` is added) |
 | `retention-days` | `30` | How long GitHub keeps the artifact |
 | `fail-on-error` | `false` | Fail the job if the sensor can't start (otherwise warn and continue) |
