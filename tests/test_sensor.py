@@ -160,6 +160,7 @@ def test_local_network_traffic_is_neither_logged_nor_blocked(tmp_path, monkeypat
         fails = "-D" in args or "-L" in args          # nothing to remove yet, no Docker chain
         return type("R", (), {"returncode": 1 if fails else 0, "stderr": ""})()
     monkeypatch.setattr(sensor.subprocess, "run", run)
+    s.fw.families = [("iptables", 4), ("ip6tables", 6)]   # as on a runner with IPv6; CI's test job may lack it
     s.fw.setup(True, [], [])
     v6 = [" ".join(a) for a in calls if a[0] == "ip6tables"]
     log_rules, out_rules = [r for r in v6 if " TEPHRA_LOG " in r], [r for r in v6 if " TEPHRA_OUT " in r]
