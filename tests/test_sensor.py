@@ -205,3 +205,32 @@ def test_host_facts(monkeypatch):
     f = sensor.host_facts({"ImageOS": "ubuntu24", "ImageVersion": "20261102.1"})
     assert f["apt"] == "2.8.3" and f["apt_retries"] == "3" and f["image"] == "ubuntu24 20261102.1"
     assert f.get("os")          # read from /etc/os-release
+
+
+def test_package_inventory(tmp_path, monkeypatch):
+    import time as _t
+    ws = tmp_path / "ws"
+    (ws / "web" / "node_modules").mkdir(parents=True)
+    (ws / "web" / "node_modules" / ".package-lock.json").write_text(json.dumps({"packages": {
+        "node_modules/axios": {"version": "1.14.1"},
+        "node_modules/plain-crypto-js": {"version": "4.2.1", "hasInstallScript": True},
+        "node_modules/@scope/pkg": {"name": "@scope/pkg", "version": "2.0.0"},
+        "node_modules/local": {"link": True}, "": {"name": "web"}}}))
+    site = ws / ".venv" / "lib" / "python3.12" / "site-packages"
+    for name, ver, old in (("litellm", "1.82.8", False), ("requests", "2.32.3", True)):
+        d = site / f"{name}-{ver}.dist-info"
+        d.mkdir(parents=True)
+        (d / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: {ver}\n\nbody\n")
+        if old:
+            os.utime(d, (_t.time() - 3600, _t.time() - 3600))      # there before the job started
+    monkeypatch.setenv("TEPHRA_DIR", str(tmp_path / "out"))
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(ws))
+    monkeypatch.setattr(sensor.glob, "glob", lambda p: [str(x) for x in __import__("glob").iglob(p)]
+                        if str(tmp_path) in p else [])
+    s = sensor.Sensor()
+    s.start_epoch = _t.time() - 60
+    s.list_packages()
+    pk = {(r["ecosystem"], r["name"], r["version"]): r for r in s.records.values() if r["type"] == "package"}
+    assert set(pk) == {("npm", "axios", "1.14.1"), ("npm", "plain-crypto-js", "4.2.1"), ("npm", "@scope/pkg", "2.0.0"),
+                       ("PyPI", "litellm", "1.82.8")}
+    assert pk[("npm", "plain-crypto-js", "4.2.1")]["install_script"] is True

@@ -26,6 +26,7 @@ allowlist) and an artifact, `tephra-sensor-<job>`, with everything recorded.
 | **Programs run** | Linux process events: every program executed during the job |
 | **Files changed** | Tracked files in the workspace that the job modified |
 | **Actions used** | Every action the runner downloaded for the job, nested ones included (`owner/repo@ref`) |
+| **Packages installed** | npm, pip and apt packages the job installed, and which npm packages ran install scripts |
 
 It never records file contents, environment variables or secrets.
 

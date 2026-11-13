@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0 (2026-11-12)
+
+- Package inventory: at the end of the job the sensor lists the npm packages (from npm's own record in
+  node_modules, with whether each ran an install script), the Python packages written during the job, and the apt
+  packages installed since it started. Names and versions only; shown in the step summary and the artifact, and
+  checked by Tephra Trace against OSV's malicious-package list.
+
 ## 1.2.0 (2026-11-12)
 
 - Records what the runner is at start: OS and version, GitHub's runner image, and apt's version and retry setting.

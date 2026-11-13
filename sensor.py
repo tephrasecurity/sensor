@@ -29,6 +29,7 @@ import datetime as dt
 import hashlib
 import ipaddress
 import base64
+import glob
 import json
 import os
 import re
@@ -41,7 +42,8 @@ import threading
 import time
 import urllib.request
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
+MAX_PACKAGES = 5000
 OIDC_AUDIENCE = "tephra-trace"     # the audience Tephra Trace accepts on sensor OIDC tokens
 LOG_NEW, LOG_BLOCK, LOG_FWD, LOG_INTEL = "tephra-new ", "tephra-block ", "tephra-fwd ", "tephra-intel "
 CHAINS = ("TEPHRA_LOG", "TEPHRA_OUT", "TEPHRA_INTEL", "TEPHRA_INTEL_HIT")   # teardown order matters: INTEL before HIT
@@ -754,6 +756,82 @@ class Sensor:
             change = {"M": "modified", "D": "deleted", "R": "renamed", "A": "added", "T": "type changed"}.get(code[:1], code)
             self.emit({"type": "file_modified", "path": path, "change": change}, f"file:{path}")
 
+    # ----- packages installed during the job -----
+    def list_packages(self) -> None:
+        """npm packages (from npm's own record of what's in node_modules), Python packages written during the job,
+        and apt packages installed or upgraded since the sensor started. Names and versions only."""
+        since = getattr(self, "start_epoch", 0.0)
+        count = 0
+
+        def add(eco: str, name: str, version: str, **extra) -> None:
+            nonlocal count
+            if count >= MAX_PACKAGES or not name or not version:
+                return
+            count += 1
+            self.emit({"type": "package", "ecosystem": eco, "name": name, "version": version, **extra},
+                      f"pkg:{eco}:{name}@{version}")
+
+        visited = 0
+        for root in [d for d in (self.workspace, os.path.expanduser("~runner")) if d and os.path.isdir(d)]:
+            for dirpath, dirnames, filenames in os.walk(root):
+                visited += 1
+                if visited > 50000:
+                    break
+                depth = dirpath[len(root):].count(os.sep)
+                if "node_modules" in dirnames:
+                    lock = os.path.join(dirpath, "node_modules", ".package-lock.json")
+                    try:
+                        with open(lock) as f:
+                            pkgs = json.load(f).get("packages") or {}
+                    except (OSError, ValueError):
+                        pkgs = {}
+                    for path, meta in pkgs.items():
+                        if not path or meta.get("link") or "node_modules/" not in path:
+                            continue
+                        add("npm", meta.get("name") or path.rsplit("node_modules/", 1)[-1], meta.get("version") or "",
+                            install_script=bool(meta.get("hasInstallScript")))
+                if dirpath.endswith(("site-packages", "dist-packages")):
+                    self._python_dists(dirpath, since, add)
+                    dirnames[:] = []
+                    continue
+                dirnames[:] = [d for d in dirnames if d not in ("node_modules", ".git") and depth < 8]
+        for pattern in ("/opt/hostedtoolcache/Python/*/*/lib/python3*/site-packages",
+                        "/usr/local/lib/python3*/dist-packages", "/usr/lib/python3/dist-packages"):
+            for d in glob.glob(pattern):
+                self._python_dists(d, since, add)
+        try:
+            with open("/var/log/dpkg.log", errors="replace") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 6 and parts[2] in ("install", "upgrade"):
+                        try:
+                            at = dt.datetime.strptime(f"{parts[0]} {parts[1]}", "%Y-%m-%d %H:%M:%S")
+                        except ValueError:
+                            continue
+                        if at.replace(tzinfo=dt.timezone.utc).timestamp() >= since - 1:
+                            add("Debian", parts[3].split(":")[0], parts[5])
+        except OSError:
+            pass
+
+    @staticmethod
+    def _python_dists(site: str, since: float, add) -> None:
+        for info in glob.glob(os.path.join(site, "*.dist-info")):
+            try:
+                if os.stat(info).st_mtime < since - 1:
+                    continue                      # there before the job: not installed by it
+                name = version = ""
+                with open(os.path.join(info, "METADATA"), errors="replace") as f:
+                    for line in f:
+                        if line.startswith("Name:"):
+                            name = line[5:].strip()
+                        elif line.startswith("Version:"):
+                            version = line[8:].strip()
+                        elif not line.strip():
+                            break
+                add("PyPI", name, version)
+            except OSError:
+                continue
+
     # ----- threat intel -----
     def allow_console(self) -> None:
         """In block mode, let the sensor reach its console before the DNS proxy (which normally opens allowed
@@ -904,6 +982,7 @@ class Sensor:
     def run(self, ready_file: str | None = None) -> None:
         self.ready_dns = threading.Event()
         self.started = now()
+        self.start_epoch = time.time()
         signal.signal(signal.SIGTERM, lambda *_: self.stop_event.set())
         signal.signal(signal.SIGINT, lambda *_: self.stop_event.set())
         threads = [threading.Thread(target=t, daemon=True) for t in
@@ -950,6 +1029,10 @@ class Sensor:
         self.cleanup()
         self.changed_files()
         self.list_actions()
+        try:
+            self.list_packages()
+        except Exception as e:  # noqa: BLE001 - the inventory must never cost the job its other records
+            self.error(f"package inventory failed: {e}")
         self.emit({"type": "sensor", "event": "stopped", "mode": self.mode,
                    "records": len(self.records), "raw_events": self.raw_count}, "sensor:stop")
         self.stream(final=True)
@@ -971,9 +1054,12 @@ def write_step_summary(summary: dict) -> None:
     egress = [r for r in recs if r["type"] == "egress"]
     blocked = [r for r in recs if r["type"] == "dns_blocked" or r.get("blocked")]
     domains = sorted({r["domain"] for r in egress if r.get("domain") and not r.get("blocked")})
+    pkgs = [r for r in recs if r["type"] == "package"]
     lines = [f"### Runner sensor ({summary['mode']} mode)", "",
              f"{len(egress)} outbound endpoints, {sum(r['type'] == 'exec' for r in recs)} distinct programs, "
-             f"{sum(r['type'] == 'file_modified' for r in recs)} source files changed, {len(blocked)} blocked.", ""]
+             f"{sum(r['type'] == 'file_modified' for r in recs)} source files changed, {len(blocked)} blocked, "
+             f"{len(pkgs)} packages installed ({sum(bool(r.get('install_script')) for r in pkgs)} with install "
+             "scripts).", ""]
     if egress:
         lines += ["| Destination | Port | Process | Count | |", "|---|---|---|---|---|"]
         for r in sorted(egress, key=lambda r: (r.get("domain") or r["ip"]))[:60]:
