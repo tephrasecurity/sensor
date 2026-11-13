@@ -91,6 +91,17 @@ job start, the sensor reads the public threat-intel feeds (or your console's lis
 - **Root:** a job step running as root can disable any sensor running on the same machine, this one included. The
   sensor makes tampering visible; it can't prevent it.
 
+## Checking Tephra Trace evidence
+
+`verify/tephra-verify.py` checks evidence from a Tephra Trace console offline, without the console: incident
+reports, evidence packs and the hourly seal chain (signatures, the chain, Merkle proofs that each event was sealed,
+and the copies kept in S3 under Object Lock). Python 3.9+ with `cryptography`, or OpenSSL 3.
+
+```bash
+python3 verify/tephra-verify.py tephra-incident-<id>.json --key tephra-key.pem
+python3 verify/tephra-verify.py --chain tephra-seal-chain.json --anchors anchors/ --key tephra-key.pem
+```
+
 ## Verifying a release
 
 Releases are built by GitHub Actions from the tagged commit, with signed build provenance for `dist/`:
