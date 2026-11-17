@@ -9,8 +9,8 @@
     "build": "esbuild src/main.js --bundle --platform=node --target=node20 --outfile=dist/main.js --legal-comments=linked && esbuild src/post.js --bundle --platform=node --target=node20 --outfile=dist/post.js --legal-comments=linked"
   },
   "dependencies": {
-    "@actions/artifact": "2.3.2",
-    "@actions/core": "1.11.1"
+    "@actions/artifact": "6.3.1",
+    "@actions/core": "3.0.1"
   },
   "devDependencies": {
     "esbuild": "0.24.2"
